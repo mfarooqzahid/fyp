@@ -123,20 +123,45 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
         while not stop_event.is_set():
             ret, frame = cap.read()
             if not ret:
-                _status(
-                    status_queue,
-                    camera_id=camera_id,
-                    source_id=source_id,
-                    stream_url=stream_url,
-                    session_id=session_id,
-                    started_at=started_at,
-                    ok=False,
-                    state="read_failed",
-                    error="Stream frame read failed or stream ended.",
-                    last_frame_at=None,
-                    inserted_rows=inserted_rows,
-                )
-                break
+                print(f"[STREAM LOOP] Stream ended or frame read failed. Rewinding connection for continuous playback...")
+                # 1. Try to seek to frame 0 first (fastest for files)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                ret, frame = cap.read()
+                
+                # 2. If seeking fails (typical for network/YouTube streams), re-initialize the VideoCapture
+                if not ret:
+                    cap.release()
+                    if is_youtube:
+                        try:
+                            import yt_dlp
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                info = ydl.extract_info(stream_url, download=False)
+                                actual_url = info.get('url') or stream_url
+                        except Exception as e:
+                            print(f"[STREAM LOOP ERROR] Failed to re-extract YouTube stream: {e}")
+                            actual_url = stream_url
+                    else:
+                        actual_url = stream_url
+                        
+                    cap = cv2.VideoCapture(actual_url)
+                    ret, frame = cap.read()
+                
+                # 3. If it STILL fails, only then we stop
+                if not ret:
+                    _status(
+                        status_queue,
+                        camera_id=camera_id,
+                        source_id=source_id,
+                        stream_url=stream_url,
+                        session_id=session_id,
+                        started_at=started_at,
+                        ok=False,
+                        state="read_failed",
+                        error="Stream frame read failed or stream ended.",
+                        last_frame_at=None,
+                        inserted_rows=inserted_rows,
+                    )
+                    break
 
             frame_count += 1
             h, w, _ = frame.shape

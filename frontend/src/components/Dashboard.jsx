@@ -19,7 +19,7 @@ function congestionClass(status) {
   return 'low'
 }
 
-export default function Dashboard({ sources, selectedSource }) {
+export default function Dashboard({ sources, selectedSource, onDeleteSource, onUpdateSource }) {
   const currentSource = sources.find((source) => source.id === selectedSource)
   const cameraNameById = React.useMemo(() => {
     return sources.reduce((lookup, source) => {
@@ -36,6 +36,7 @@ export default function Dashboard({ sources, selectedSource }) {
   const [isSourceLoading, setIsSourceLoading] = React.useState(false)
   const [error, setError] = React.useState(null)
   const [failedCameraId, setFailedCameraId] = React.useState('')
+  const [refreshTrigger, setRefreshTrigger] = React.useState(0)
   const currentCameraId = currentSource?.camera_id || ''
   const hasCurrentDashboardData = Boolean(dashboardData && loadedCameraId === currentCameraId)
   const hasCurrentError = Boolean(error && failedCameraId === currentCameraId)
@@ -89,7 +90,7 @@ export default function Dashboard({ sources, selectedSource }) {
       isActive = false
       clearInterval(interval)
     }
-  }, [currentCameraId, currentSource?.mode])
+  }, [currentCameraId, currentSource?.mode, refreshTrigger])
 
   const liveTrend = Array.isArray(dashboardData?.live_trend) ? dashboardData.live_trend : []
   const trendLabels = liveTrend.map((point) => Array.isArray(point) ? point[0] : '')
@@ -187,6 +188,15 @@ export default function Dashboard({ sources, selectedSource }) {
               onClick={() => setIsInfoOpen(true)}
             >
               <Icon name="info" size={20} />
+            </button>
+            <button
+              className="source-info-button"
+              type="button"
+              aria-label="Refresh analytics data"
+              onClick={() => setRefreshTrigger((prev) => prev + 1)}
+              style={{ marginLeft: '8px' }}
+            >
+              <Icon name="refresh" size={20} />
             </button>
           </h2>
           <p>{currentSource ? `${currentSource.title} overview` : 'No source selected'}</p>
@@ -341,6 +351,11 @@ export default function Dashboard({ sources, selectedSource }) {
         <SourceInfoModal
           source={currentSource}
           onClose={() => setIsInfoOpen(false)}
+          onDelete={(sourceId) => {
+            setIsInfoOpen(false)
+            onDeleteSource(sourceId)
+          }}
+          onUpdate={onUpdateSource}
         />
       )}
       {showDashboardLoading && (

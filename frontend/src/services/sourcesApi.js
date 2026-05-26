@@ -49,6 +49,28 @@ export async function createSource(source) {
   return normalizeSource(data.source)
 }
 
+export async function deleteSource(sourceId) {
+  const res = await fetch(`${API_BASE}/sources/${sourceId}`, {
+    method: 'DELETE',
+  })
+  return parseResponse(res)
+}
+
+export async function updateSource(sourceId, source) {
+  const res = await fetch(`${API_BASE}/sources/${sourceId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: source.title.trim(),
+      description: source.description.trim(),
+      mode: source.mode,
+      streamUrl: source.mode === 'stream' ? source.streamUrl.trim() : '',
+    }),
+  })
+  const data = await parseResponse(res)
+  return normalizeSource(data.source)
+}
+
 export async function fetchDashboardData(cameraId, sourceMode = 'generate') {
   const analyticsMode = sourceMode === 'stream' || sourceMode === 'live' ? 'live' : 'simulation'
   const params = new URLSearchParams({

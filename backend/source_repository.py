@@ -51,6 +51,50 @@ class SourceRepository:
 
         return self._to_api_source(response.data[0])
 
+    def get_source(self, source_id: str):
+        response = (
+            self.supabase
+            .table(TABLE_NAME)
+            .select("*")
+            .eq("id", source_id)
+            .execute()
+        )
+        if not response.data:
+            return None
+        return self._to_api_source(response.data[0])
+
+    def delete_source(self, source_id: str):
+        response = (
+            self.supabase
+            .table(TABLE_NAME)
+            .delete()
+            .eq("id", source_id)
+            .execute()
+        )
+        if not response.data:
+            raise SourceRepositoryError("Failed to delete source or source not found")
+        return self._to_api_source(response.data[0])
+
+    def update_source(self, source_id: str, title: str, description: str, mode: str, stream_url: Optional[str] = None):
+        source_type = "stream" if mode == "stream" else "generate"
+        payload = {
+            "title": title.strip(),
+            "description": description.strip(),
+            "source_type": source_type,
+            "stream_url": stream_url.strip() if source_type == "stream" and stream_url else None,
+        }
+
+        response = (
+            self.supabase
+            .table(TABLE_NAME)
+            .update(payload)
+            .eq("id", source_id)
+            .execute()
+        )
+        if not response.data:
+            raise SourceRepositoryError("Failed to update source or source not found")
+        return self._to_api_source(response.data[0])
+
     def _to_api_source(self, row):
         return {
             "id": row.get("id"),

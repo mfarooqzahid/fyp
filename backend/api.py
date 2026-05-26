@@ -84,6 +84,14 @@ class SourceCreate(BaseModel):
     stream_url: Optional[str] = None
 
 
+class SourceUpdate(BaseModel):
+    title: str
+    description: str
+    mode: str = "generate"
+    streamUrl: Optional[str] = None
+    stream_url: Optional[str] = None
+
+
 class SimulatorIngest(BaseModel):
     source_id: Optional[str] = None
     camera_id: str
@@ -257,6 +265,93 @@ def add_source(src: SourceCreate):
             stream_url=stream_url,
         )
         return {"status":"created", "source": source}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/sources/{source_id}")
+def delete_source(source_id: str):
+    repo = get_source_repository()
+    try:
+        source = repo.get_source(source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Source not found")
+        
+        camera_id = source.get("camera_id")
+        mode = source.get("mode")
+        
+        # Stop background workers if active
+        if mode == "generate" and _supervisor is not None:
+            try:
+                _supervisor.stop_worker(camera_id=camera_id)
+            except Exception as e:
+                print(f"[WARN] Failed to stop simulator worker during deletion: {e}")
+        elif mode == "stream" and _stream_supervisor is not None:
+            try:
+                _stream_supervisor.stop_worker(camera_id=camera_id)
+            except Exception as e:
+                print(f"[WARN] Failed to stop stream worker during deletion: {e}")
+
+        deleted_source = repo.delete_source(source_id)
+        return {"status": "deleted", "source": deleted_source}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/sources/{source_id}")
+def update_source(source_id: str, src: SourceUpdate):
+    payload = model_dump(src)
+    title = payload.get("title", "").strip()
+    description = payload.get("description", "").strip()
+    mode = payload.get("mode", "generate")
+    stream_url = payload.get("streamUrl") or payload.get("stream_url") or ""
+
+    if not title:
+        raise HTTPException(status_code=422, detail="Title is required")
+    if not description:
+        raise HTTPException(status_code=422, detail="Description is required")
+    if mode not in ["generate", "stream"]:
+        raise HTTPException(status_code=422, detail="Mode must be generate or stream")
+    if mode == "stream" and not stream_url.strip():
+        raise HTTPException(status_code=422, detail="Stream URL is required")
+    if mode == "stream":
+        parsed_url = urlparse(stream_url)
+        if parsed_url.scheme not in ["http", "https", "rtsp"] or not parsed_url.netloc:
+            raise HTTPException(status_code=422, detail="Stream URL must be http, https, or rtsp")
+
+    repo = get_source_repository()
+    try:
+        source = repo.get_source(source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Source not found")
+        
+        camera_id = source.get("camera_id")
+        old_mode = source.get("mode")
+        
+        # Stop background workers for this camera so they don't run with old configs/modes
+        if old_mode == "generate" and _supervisor is not None:
+            try:
+                _supervisor.stop_worker(camera_id=camera_id)
+            except Exception as e:
+                print(f"[WARN] Failed to stop simulator worker during update: {e}")
+        elif old_mode == "stream" and _stream_supervisor is not None:
+            try:
+                _stream_supervisor.stop_worker(camera_id=camera_id)
+            except Exception as e:
+                print(f"[WARN] Failed to stop stream worker during update: {e}")
+
+        updated_source = repo.update_source(
+            source_id=source_id,
+            title=title,
+            description=description,
+            mode=mode,
+            stream_url=stream_url,
+        )
+        return {"status": "updated", "source": updated_source}
     except HTTPException:
         raise
     except Exception as e:

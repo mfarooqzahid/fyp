@@ -2,7 +2,7 @@ import React from 'react'
 import AddSourceModal from './components/AddSourceModal'
 import Dashboard from './components/Dashboard'
 import Sidebar from './components/Sidebar'
-import { createSource, fetchSources } from './services/sourcesApi'
+import { createSource, fetchSources, deleteSource, updateSource } from './services/sourcesApi'
 
 export default function App() {
   const [sources, setSources] = React.useState([])
@@ -54,6 +54,36 @@ export default function App() {
     }
   }
 
+  async function handleDeleteSource(sourceId) {
+    try {
+      await deleteSource(sourceId)
+      setSources((currentSources) => {
+        const nextSources = currentSources.filter((source) => source.id !== sourceId)
+        setSelectedSource((currentSelected) => {
+          if (currentSelected === sourceId) {
+            return nextSources[0]?.id || ''
+          }
+          return currentSelected
+        })
+        return nextSources
+      })
+    } catch (error) {
+      alert(`Failed to delete source: ${error.message}`)
+    }
+  }
+
+  async function handleUpdateSource(sourceId, sourceData) {
+    try {
+      const updated = await updateSource(sourceId, sourceData)
+      setSources((currentSources) =>
+        currentSources.map((source) => (source.id === sourceId ? updated : source))
+      )
+    } catch (error) {
+      console.error('Failed to update source:', error)
+      throw error
+    }
+  }
+
   return (
     <div className="shell">
       <Sidebar
@@ -66,7 +96,12 @@ export default function App() {
         onRetryLoad={loadSources}
       />
 
-      <Dashboard sources={sources} selectedSource={selectedSource} />
+      <Dashboard
+        sources={sources}
+        selectedSource={selectedSource}
+        onDeleteSource={handleDeleteSource}
+        onUpdateSource={handleUpdateSource}
+      />
 
       {isAddSourceOpen && (
         <AddSourceModal

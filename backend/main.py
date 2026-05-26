@@ -43,8 +43,12 @@ while True:
 
     ret, frame = cap.read()
     if not ret:
-        print("Source stream consumed.")
-        break
+        print("[LOOP] Video file ended. Rewinding for continuous playback...")
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, frame = cap.read()
+        if not ret:
+            print("Source stream consumed.")
+            break
 
     frame_count += 1
     h, w, _ = frame.shape
