@@ -26,7 +26,7 @@ class AnalyticsService:
         self.url = os.getenv("SUPABASE_URL")
         self.key = os.getenv("SUPABASE_KEY")
         self.default_camera = os.getenv("DEFAULT_CAMERA_ID", "Camera_01")
-        self.supabase: Client = create_client(self.url, self.key)
+        self.supabase = create_client(self.url, self.key)
         print("[SUCCESS] AnalyticsService shifted to Supabase Client (No-Cursor)")
 
     def get_latest_session_id(self, camera_id=None, table="detections"):
