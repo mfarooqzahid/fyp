@@ -8,3 +8,4 @@ python-multipart
 opencv-python
 ultralytics
 deep-sort-realtime
+yt-dlp

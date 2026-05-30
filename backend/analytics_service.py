@@ -16,8 +16,6 @@ except (ImportError, ModuleNotFoundError):
     def create_client(*_args, **_kwargs):
         raise RuntimeError("Supabase client is not installed")
 
-from .config import DEFAULT_CAMERA_ID
-
 load_dotenv()
 SOURCE_TABLE = "camera_sources"
 
@@ -25,7 +23,6 @@ class AnalyticsService:
     def __init__(self):
         self.url = os.getenv("SUPABASE_URL")
         self.key = os.getenv("SUPABASE_KEY")
-        self.default_camera = os.getenv("DEFAULT_CAMERA_ID", "Camera_01")
         self.supabase = create_client(self.url, self.key)
         print("[SUCCESS] AnalyticsService shifted to Supabase Client (No-Cursor)")
 
@@ -265,10 +262,10 @@ class AnalyticsService:
         ranked = sorted(buckets.values(), key=lambda item: (-item["count"], item["time"]))
         return ranked[:limit]
 
-    def get_peak_hours(self, camera_id=DEFAULT_CAMERA_ID, session_id=None, date=None, hours=None, table="detections"):
+    def get_peak_hours(self, camera_id=None, session_id=None, date=None, hours=None, table="detections"):
         return self.get_peak_slots(camera_id, session_id, date, hours, bucket_minutes=60, limit=3, table=table)
 
-    def get_average_flow(self, camera_id=DEFAULT_CAMERA_ID, session_id=None, date=None, hours=None, table="detections"):
+    def get_average_flow(self, camera_id=None, session_id=None, date=None, hours=None, table="detections"):
         trend = self.get_hourly_trend(camera_id, session_id, date, table=table)
         if hours:
             trend = [point for point in trend if hours[0] <= point[0] <= hours[1]]

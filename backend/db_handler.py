@@ -9,7 +9,9 @@ class DBHandler:
     def __init__(self, camera_id=None):
         self.url = os.getenv("SUPABASE_URL")
         self.key = os.getenv("SUPABASE_KEY")
-        self.camera_id = camera_id if camera_id else os.getenv("DEFAULT_CAMERA_ID", "Camera_01")
+        if not camera_id:
+            raise ValueError("camera_id is required")
+        self.camera_id = camera_id
         
         if not self.url or not self.key:
             print("[WARN] Supabase credentials missing in .env")

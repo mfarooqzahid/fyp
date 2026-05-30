@@ -7,18 +7,27 @@ from fastapi import HTTPException
 
 from backend import api
 from backend import stream_supervisor
-from backend.stream_worker import get_crossing_direction
+from backend.stream_worker import get_presence_events, is_track_visible
 
 
-class StreamDirectionTest(unittest.TestCase):
-    def test_vertical_left_to_right_is_in(self):
-        self.assertEqual(get_crossing_direction(90, 110, 100), "IN")
+class StreamPresenceTest(unittest.TestCase):
+    def test_new_visible_track_is_incoming(self):
+        events = get_presence_events(previous_active_ids={"A"}, current_active_ids={"A", "B"})
 
-    def test_vertical_right_to_left_is_out(self):
-        self.assertEqual(get_crossing_direction(110, 90, 100), "OUT")
+        self.assertEqual(events["incoming"], {"B"})
+        self.assertEqual(events["outgoing"], set())
 
-    def test_no_crossing_has_no_direction(self):
-        self.assertIsNone(get_crossing_direction(80, 95, 100))
+    def test_missing_active_track_is_outgoing(self):
+        events = get_presence_events(previous_active_ids={"A", "B"}, current_active_ids={"B"})
+
+        self.assertEqual(events["incoming"], set())
+        self.assertEqual(events["outgoing"], {"A"})
+
+    def test_track_visibility_uses_current_frame_update(self):
+        class Track:
+            time_since_update = 0
+
+        self.assertTrue(is_track_visible(Track()))
 
 
 class StreamSupervisorSourceTest(unittest.TestCase):

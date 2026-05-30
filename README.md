@@ -42,13 +42,11 @@ supabase/
 Create a `backend/.env` file with your own credentials:
 
 ```env
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres
-DEFAULT_CAMERA_ID=Camera_01
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-supabase-key
 ```
 
-Do not commit real passwords, service-role keys, or production database URLs.
+Do not commit real passwords, service-role keys, or production Supabase keys.
 
 ## Database Setup
 

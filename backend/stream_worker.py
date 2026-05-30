@@ -3,21 +3,25 @@ import time
 from datetime import datetime
 
 try:
-    from backend.config import DEEPSORT_MAX_AGE, LINE_ORIENTATION, MODEL_PATH
+    from backend.config import DEEPSORT_MAX_AGE, MODEL_PATH
 except Exception:
-    from config import DEEPSORT_MAX_AGE, LINE_ORIENTATION, MODEL_PATH
+    from config import DEEPSORT_MAX_AGE, MODEL_PATH
 
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 FRAMES_DIR = os.path.join(BACKEND_DIR, "frames")
 
 
-def get_crossing_direction(previous_center, current_center, line_position):
-    if previous_center < line_position <= current_center:
-        return "IN"
-    if previous_center > line_position >= current_center:
-        return "OUT"
-    return None
+def is_track_visible(track):
+    """Return True only when DeepSORT updated this track from the current frame."""
+    return getattr(track, "time_since_update", 0) == 0
+
+
+def get_presence_events(previous_active_ids, current_active_ids):
+    return {
+        "incoming": set(current_active_ids) - set(previous_active_ids),
+        "outgoing": set(previous_active_ids) - set(current_active_ids),
+    }
 
 
 def _status(status_queue, **payload):
@@ -28,7 +32,7 @@ def _status(status_queue, **payload):
 
 
 def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue):
-    """Read one stream URL, detect people crossings, and persist events to live_logs."""
+    """Read one stream URL, count frame presence, and persist IN/OUT events to live_logs."""
     session_id = f"LIVE_{camera_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     started_at = datetime.now().astimezone().isoformat()
 
@@ -58,11 +62,11 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
 
     os.makedirs(FRAMES_DIR, exist_ok=True)
     frame_path = os.path.join(FRAMES_DIR, f"{camera_id}.jpg")
-    line_type = LINE_ORIENTATION
-    line_position = None
-    track_history = {}
+    active_track_ids = set()
+    last_bbox_by_track = {}
     frame_count = 0
     inserted_rows = 0
+    current_occupancy = 0
 
     model = tracker = db = cap = None
     try:
@@ -164,15 +168,6 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
                     break
 
             frame_count += 1
-            h, w, _ = frame.shape
-            if line_position is None:
-                line_position = h // 2 if line_type == "horizontal" else w // 2
-
-            if line_type == "horizontal":
-                cv2.line(frame, (0, line_position), (w, line_position), (0, 255, 255), 2)
-            else:
-                cv2.line(frame, (line_position, 0), (line_position, h), (0, 255, 255), 2)
-
             detections = []
             results = model(frame, verbose=False)
             for result in results:
@@ -183,35 +178,54 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
                         detections.append(([x1, y1, x2 - x1, y2 - y1], confidence, "person"))
 
             tracks = tracker.update_tracks(detections, frame=frame)
+            current_track_ids = set()
             for track in tracks:
                 if not track.is_confirmed():
+                    continue
+                if not is_track_visible(track):
                     continue
 
                 track_id = track.track_id
                 l, t, r, b = map(int, track.to_ltrb())
-                center = (t + b) // 2 if line_type == "horizontal" else (l + r) // 2
-                direction = None
-
-                if track_id in track_history:
-                    direction = get_crossing_direction(track_history[track_id], center, line_position)
-
-                track_history[track_id] = center
-
-                if direction:
-                    db.insert_detection(
-                        track_id=track_id,
-                        obj_class="person",
-                        confidence=1.0,
-                        bbox=(l, t, r, b),
-                        frame_number=frame_count,
-                        direction=direction,
-                        session_id=session_id,
-                        table="live_logs",
-                    )
-                    inserted_rows += 1
+                current_track_ids.add(track_id)
+                last_bbox_by_track[track_id] = (l, t, r, b)
 
                 cv2.rectangle(frame, (l, t), (r, b), (255, 0, 0), 2)
                 cv2.putText(frame, f"ID:{track_id}", (l, t - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+            events = get_presence_events(active_track_ids, current_track_ids)
+
+            for track_id in events["incoming"]:
+                bbox = last_bbox_by_track.get(track_id, (0, 0, 1, 1))
+                db.insert_detection(
+                    track_id=track_id,
+                    obj_class="person",
+                    confidence=1.0,
+                    bbox=bbox,
+                    frame_number=frame_count,
+                    direction="IN",
+                    session_id=session_id,
+                    table="live_logs",
+                )
+                inserted_rows += 1
+
+            for track_id in events["outgoing"]:
+                bbox = last_bbox_by_track.get(track_id, (0, 0, 1, 1))
+                db.insert_detection(
+                    track_id=track_id,
+                    obj_class="person",
+                    confidence=1.0,
+                    bbox=bbox,
+                    frame_number=frame_count,
+                    direction="OUT",
+                    session_id=session_id,
+                    table="live_logs",
+                )
+                inserted_rows += 1
+                last_bbox_by_track.pop(track_id, None)
+
+            active_track_ids = current_track_ids
+            current_occupancy = len(active_track_ids)
 
             last_frame_at = datetime.now().astimezone().isoformat()
             cv2.imwrite(frame_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
@@ -229,6 +243,7 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
                 last_frame_at=last_frame_at,
                 inserted_rows=inserted_rows,
                 frame_count=frame_count,
+                current_occupancy=current_occupancy,
             )
 
             time.sleep(0.001)
@@ -247,6 +262,7 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
             last_frame_at=None,
             inserted_rows=inserted_rows,
             frame_count=frame_count,
+            current_occupancy=current_occupancy,
         )
     finally:
         if cap is not None:

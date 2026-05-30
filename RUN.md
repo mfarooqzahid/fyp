@@ -16,13 +16,11 @@ Install these first:
 Create `backend/.env`:
 
 ```env
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/postgres
-DEFAULT_CAMERA_ID=Camera_01
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-supabase-key
 ```
 
-Replace the placeholder values with your own database and Supabase credentials.
+Replace the placeholder values with your own Supabase credentials.
 
 ## 3. Set Up the Database
 
