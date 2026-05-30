@@ -16,6 +16,7 @@ ENV/
 **/.env
 **/.env.*
 backend/.env
+backend/frames
 frontend/.env
 
 # Project specific
