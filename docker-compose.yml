@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - backend/.env
+    environment:
+      PYTHONUNBUFFERED: "1"
+    restart: unless-stopped
