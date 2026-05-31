@@ -2,6 +2,12 @@ import os
 import time
 from datetime import datetime
 
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 try:
     from backend.config import DEEPSORT_MAX_AGE, MODEL_PATH
 except Exception:
@@ -10,6 +16,11 @@ except Exception:
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 FRAMES_DIR = os.path.join(BACKEND_DIR, "frames")
+STREAM_PROCESS_INTERVAL_SECONDS = float(os.getenv("STREAM_PROCESS_INTERVAL_SECONDS", "5.0"))
+STREAM_MAX_FRAME_WIDTH = int(os.getenv("STREAM_MAX_FRAME_WIDTH", "480"))
+STREAM_JPEG_INTERVAL_SECONDS = float(os.getenv("STREAM_JPEG_INTERVAL_SECONDS", "5.0"))
+STREAM_YOLO_IMGSZ = int(os.getenv("STREAM_YOLO_IMGSZ", "320"))
+STREAM_YOLO_CONF = float(os.getenv("STREAM_YOLO_CONF", "0.4"))
 
 
 def is_track_visible(track):
@@ -22,6 +33,18 @@ def get_presence_events(previous_active_ids, current_active_ids):
         "incoming": set(current_active_ids) - set(previous_active_ids),
         "outgoing": set(previous_active_ids) - set(current_active_ids),
     }
+
+
+def resize_for_detection(frame, max_width):
+    if not max_width or max_width <= 0:
+        return frame
+
+    height, width = frame.shape[:2]
+    if width <= max_width:
+        return frame
+
+    scale = max_width / width
+    return __import__("cv2").resize(frame, (max_width, int(height * scale)))
 
 
 def _status(status_queue, **payload):
@@ -38,11 +61,18 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
 
     try:
         import cv2
+        cv2.setNumThreads(1)
         try:
             from backend.db_handler import DBHandler
         except Exception:
             from db_handler import DBHandler
         from deep_sort_realtime.deepsort_tracker import DeepSort
+        try:
+            import torch
+            torch.set_num_threads(1)
+            torch.set_num_interop_threads(1)
+        except Exception:
+            pass
         from ultralytics import YOLO
     except Exception as exc:
         _status(
@@ -67,6 +97,8 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
     frame_count = 0
     inserted_rows = 0
     current_occupancy = 0
+    last_processed_at = 0
+    last_jpeg_at = 0
 
     model = tracker = db = cap = None
     try:
@@ -125,6 +157,7 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
         )
 
         while not stop_event.is_set():
+            loop_started_at = time.monotonic()
             ret, frame = cap.read()
             if not ret:
                 print(f"[STREAM LOOP] Stream ended or frame read failed. Rewinding connection for continuous playback...")
@@ -167,9 +200,16 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
                     )
                     break
 
+            elapsed_since_process = loop_started_at - last_processed_at
+            if elapsed_since_process < STREAM_PROCESS_INTERVAL_SECONDS:
+                stop_event.wait(STREAM_PROCESS_INTERVAL_SECONDS - elapsed_since_process)
+                continue
+
+            last_processed_at = time.monotonic()
             frame_count += 1
+            frame = resize_for_detection(frame, STREAM_MAX_FRAME_WIDTH)
             detections = []
-            results = model(frame, verbose=False)
+            results = model(frame, verbose=False, imgsz=STREAM_YOLO_IMGSZ, conf=STREAM_YOLO_CONF)
             for result in results:
                 for box in result.boxes:
                     if int(box.cls[0]) == 0:
@@ -228,7 +268,10 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
             current_occupancy = len(active_track_ids)
 
             last_frame_at = datetime.now().astimezone().isoformat()
-            cv2.imwrite(frame_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            now_monotonic = time.monotonic()
+            if now_monotonic - last_jpeg_at >= STREAM_JPEG_INTERVAL_SECONDS:
+                cv2.imwrite(frame_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 55])
+                last_jpeg_at = now_monotonic
 
             _status(
                 status_queue,
@@ -246,7 +289,9 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
                 current_occupancy=current_occupancy,
             )
 
-            time.sleep(0.001)
+            elapsed = time.monotonic() - loop_started_at
+            if elapsed < STREAM_PROCESS_INTERVAL_SECONDS:
+                stop_event.wait(STREAM_PROCESS_INTERVAL_SECONDS - elapsed)
 
     except Exception as exc:
         _status(

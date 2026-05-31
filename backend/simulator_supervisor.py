@@ -123,13 +123,13 @@ class SimulatorSupervisor:
 
     def _load_generated_sources(self):
         sources = self._from_source_repository()
-        if not sources:
+        if sources is None:
             sources = self._from_sources_json()
         return {s["camera_id"]: s for s in sources if s.get("camera_id")}
 
     def _from_source_repository(self):
         if SourceRepository is None:
-            return []
+            return None
         try:
             repo = SourceRepository()
             data = repo.list_sources()
@@ -142,7 +142,7 @@ class SimulatorSupervisor:
                 if (s.get("mode") == "generate" or s.get("source_type") == "generate") and s.get("camera_id")
             ]
         except Exception:
-            return []
+            return None
 
     def _from_sources_json(self):
         if not os.path.exists(self.sources_file):
