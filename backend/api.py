@@ -215,6 +215,39 @@ def attach_stream_runtime(sources):
     return enriched
 
 
+def source_mode_to_log_table(mode):
+    if mode in ["stream", "live"]:
+        return "live_logs"
+    return "simulated_logs"
+
+
+def build_rush_alerts(sources, rush_detector, minutes=10):
+    alerts = []
+    for source in sources:
+        camera_id = (source.get("camera_id") or "").strip()
+        if not camera_id:
+            continue
+
+        mode = source.get("mode") or source.get("source_type") or "generate"
+        table = source_mode_to_log_table(mode)
+        rush_result = rush_detector.detect_rush(camera_id, minutes=minutes, table=table)
+        alerts.append({
+            "source_id": source.get("id"),
+            "camera_id": camera_id,
+            "title": source.get("title") or camera_id,
+            "mode": mode,
+            "table": table,
+            "status": rush_result["status"],
+            "active": rush_result["is_active"],
+            "current": rush_result["current"],
+            "average": round(rush_result["mean"], 2),
+            "ratio": round(rush_result["ratio"], 2),
+            "z_score": round(rush_result["z"], 2),
+            "window_minutes": rush_result["window_minutes"],
+        })
+    return alerts
+
+
 def model_dump(model):
     if hasattr(model, "model_dump"):
         return model.model_dump()
@@ -368,6 +401,19 @@ def dashboard(camera: str = None, mode: str = "simulation"):
         if data is None:
             raise HTTPException(status_code=500, detail="Analytics engine returned no data")
         return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rush-alerts")
+def rush_alerts():
+    if _engine is None:
+        raise HTTPException(status_code=503, detail="AnalyticsEngine unavailable")
+    try:
+        sources = get_source_repository().list_sources()
+        return {"alerts": build_rush_alerts(sources, _engine.rush)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

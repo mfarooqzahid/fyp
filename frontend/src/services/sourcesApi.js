@@ -80,3 +80,9 @@ export async function fetchDashboardData(cameraId, sourceMode = 'generate') {
   const res = await fetch(`${API_BASE}/dashboard?${params}`)
   return parseResponse(res)
 }
+
+export async function fetchRushAlerts() {
+  const res = await fetch(`${API_BASE}/rush-alerts`)
+  const data = await parseResponse(res)
+  return Array.isArray(data?.alerts) ? data.alerts : []
+}

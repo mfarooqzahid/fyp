@@ -72,7 +72,7 @@ class SourceRepository:
             .execute()
         )
         if not response.data:
-            raise SourceRepositoryError("Failed to delete source or source not found")
+            raise SourceRepositoryError("Failed to delete source. Check camera_sources delete RLS policy or service-role backend key.")
         return self._to_api_source(response.data[0])
 
     def update_source(self, source_id: str, title: str, description: str, mode: str, stream_url: Optional[str] = None):
@@ -92,7 +92,7 @@ class SourceRepository:
             .execute()
         )
         if not response.data:
-            raise SourceRepositoryError("Failed to update source or source not found")
+            raise SourceRepositoryError("Failed to update source. Check camera_sources update RLS policy or service-role backend key.")
         return self._to_api_source(response.data[0])
 
     def _to_api_source(self, row):

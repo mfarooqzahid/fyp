@@ -615,6 +615,56 @@ textarea {
   background: #f8fafc;
 }
 
+.rush-toast-stack {
+  position: fixed;
+  right: 24px;
+  top: 24px;
+  z-index: 80;
+  width: min(620px, calc(100vw - 32px));
+  display: grid;
+  gap: 14px;
+}
+
+.rush-toast {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 22px;
+  color: #7f1d1d;
+  background: #fff1f2;
+  border: 2px solid #e11d48;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(127, 29, 29, 0.28);
+}
+
+.rush-toast-title {
+  display: block;
+  color: #7f1d1d;
+  line-height: 1.2;
+  font-size: 22px;
+}
+
+.rush-toast-detail {
+  margin: 8px 0 0;
+  color: #9f1239;
+  line-height: 1.35;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.rush-toast-close {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #9f1239;
+  background: rgba(255, 255, 255, 0.72);
+  cursor: pointer;
+}
+
 .dashboard-error {
   position: fixed;
   right: 20px;

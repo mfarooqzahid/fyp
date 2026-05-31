@@ -1,7 +1,9 @@
 import unittest
 from datetime import datetime, timedelta
 
+import backend.api as api_module
 from backend.analytics_service import AnalyticsService
+from backend.api import build_rush_alerts
 from backend.rush_detection import RushDetection
 
 
@@ -126,6 +128,87 @@ class RushDetectionTest(unittest.TestCase):
         self.assertEqual(result["status"], "RUSH ALERT")
         self.assertTrue(result["is_active"])
         self.assertEqual(result["ratio"], 2)
+
+
+class RushAlertsEndpointLogicTest(unittest.TestCase):
+    def test_builds_alerts_for_all_sources_with_camera_ids(self):
+        sources = [
+            {"id": "src-1", "title": "Gate 1", "mode": "generate", "camera_id": "cam-1"},
+            {"id": "src-2", "title": "Gate 2", "mode": "stream", "camera_id": "cam-2"},
+            {"id": "src-3", "title": "Missing camera", "mode": "stream", "camera_id": ""},
+        ]
+
+        class FakeRushDetector:
+            def __init__(self):
+                self.calls = []
+
+            def detect_rush(self, camera_id, minutes=10, table="simulated_logs"):
+                self.calls.append((camera_id, minutes, table))
+                is_active = camera_id == "cam-2"
+                return {
+                    "current": 24 if is_active else 4,
+                    "mean": 12 if is_active else 8,
+                    "std": 3,
+                    "z": 4 if is_active else 0,
+                    "ratio": 2 if is_active else 0.5,
+                    "status": "RUSH ALERT" if is_active else "NORMAL",
+                    "window_minutes": minutes,
+                    "is_active": is_active,
+                }
+
+        detector = FakeRushDetector()
+
+        alerts = build_rush_alerts(sources, detector)
+
+        self.assertEqual(detector.calls, [
+            ("cam-1", 10, "simulated_logs"),
+            ("cam-2", 10, "live_logs"),
+        ])
+        self.assertEqual(len(alerts), 2)
+        self.assertEqual(alerts[0]["status"], "NORMAL")
+        self.assertFalse(alerts[0]["active"])
+        self.assertEqual(alerts[1]["title"], "Gate 2")
+        self.assertEqual(alerts[1]["status"], "RUSH ALERT")
+        self.assertTrue(alerts[1]["active"])
+        self.assertEqual(alerts[1]["ratio"], 2)
+
+    def test_rush_alerts_endpoint_uses_repository_sources_and_engine_detector(self):
+        class FakeRepository:
+            def list_sources(self):
+                return [
+                    {"id": "src-1", "title": "Gate 1", "mode": "generate", "camera_id": "cam-1"},
+                ]
+
+        class FakeRushDetector:
+            def detect_rush(self, camera_id, minutes=10, table="simulated_logs"):
+                return {
+                    "current": 30,
+                    "mean": 10,
+                    "std": 5,
+                    "z": 4,
+                    "ratio": 3,
+                    "status": "RUSH ALERT",
+                    "window_minutes": minutes,
+                    "is_active": True,
+                }
+
+        class FakeEngine:
+            rush = FakeRushDetector()
+
+        original_engine = api_module._engine
+        original_repository = api_module._source_repository
+        api_module._engine = FakeEngine()
+        api_module._source_repository = FakeRepository()
+
+        try:
+            response = api_module.rush_alerts()
+        finally:
+            api_module._engine = original_engine
+            api_module._source_repository = original_repository
+
+        self.assertEqual(response["alerts"][0]["camera_id"], "cam-1")
+        self.assertEqual(response["alerts"][0]["status"], "RUSH ALERT")
+        self.assertTrue(response["alerts"][0]["active"])
 
 
 if __name__ == "__main__":

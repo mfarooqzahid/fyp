@@ -317,7 +317,7 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
             {congestion.length > 0 ? congestion.map((gate) => (
               <div className="congestion-row" key={gate.camera}>
                 <span className={`status-dot ${congestionClass(gate.status)}`} />
-                <span>{gate.camera}</span>
+                <span>{getCameraName(gate.camera)}</span>
                 <strong>{gate.status} ({gate.percent}%)</strong>
               </div>
             )) : (
