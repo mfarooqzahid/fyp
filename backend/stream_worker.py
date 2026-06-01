@@ -22,7 +22,6 @@ STREAM_JPEG_INTERVAL_SECONDS = float(os.getenv("STREAM_JPEG_INTERVAL_SECONDS", "
 STREAM_YOLO_IMGSZ = int(os.getenv("STREAM_YOLO_IMGSZ", "640"))
 STREAM_YOLO_CONF = float(os.getenv("STREAM_YOLO_CONF", "0.25"))
 
-
 def is_track_visible(track):
     """Return True only when DeepSORT updated this track from the current frame."""
     return getattr(track, "time_since_update", 0) == 0
@@ -111,9 +110,9 @@ def run_stream_worker(camera_id, source_id, stream_url, stop_event, status_queue
             try:
                 import yt_dlp
                 ydl_opts = {
-                    'format': 'best[ext=mp4]/best',
-                    'quiet': True,
-                    'no_warnings': True
+                    "format": "best[ext=mp4]/best",
+                    "quiet": True,
+                    "no_warnings": True,
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(stream_url, download=False)

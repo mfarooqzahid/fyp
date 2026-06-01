@@ -5,7 +5,7 @@ pydantic
 supabase
 aiofiles
 python-multipart
-opencv-python
+opencv-python-headless
 ultralytics
 deep-sort-realtime
 yt-dlp

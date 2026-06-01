@@ -23,6 +23,7 @@ backend/frames/
 backend/current_frame.jpg
 backend/stop_signal.txt
 
+
 .env
 .env*
 **/.env
