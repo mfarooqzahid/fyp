@@ -26,8 +26,7 @@ pipeline {
         sh '''
           set -eu
           AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          IMAGE_TAG="${GIT_COMMIT:-manual}"
-          IMAGE_TAG="${IMAGE_TAG:0:12}"
+          IMAGE_TAG="$(printf '%s' "${GIT_COMMIT:-manual}" | cut -c1-12)"
           IMAGE_URI="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:$IMAGE_TAG"
 
           docker build -t "$IMAGE_URI" .
