@@ -405,13 +405,28 @@ def dashboard(camera: str = None, mode: str = "simulation"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Small TTL cache for /api/rush-alerts so frequent polling does not hammer Supabase.
+# Frontend polls every 10 s; cache TTL of 5 s halves the load while still feeling real-time.
+_rush_alerts_cache = {"value": None, "ts": 0.0}
+_RUSH_ALERTS_TTL_SECONDS = 5.0
+
+
 @app.get("/api/rush-alerts")
 def rush_alerts():
     if _engine is None:
         raise HTTPException(status_code=503, detail="AnalyticsEngine unavailable")
     try:
+        import time as _time
+        now = _time.monotonic()
+        if (_rush_alerts_cache["value"] is not None
+                and now - _rush_alerts_cache["ts"] < _RUSH_ALERTS_TTL_SECONDS):
+            return _rush_alerts_cache["value"]
+
         sources = get_source_repository().list_sources()
-        return {"alerts": build_rush_alerts(sources, _engine.rush)}
+        payload = {"alerts": build_rush_alerts(sources, _engine.rush)}
+        _rush_alerts_cache["value"] = payload
+        _rush_alerts_cache["ts"] = now
+        return payload
     except HTTPException:
         raise
     except Exception as e:

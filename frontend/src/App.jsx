@@ -5,6 +5,7 @@ import Icon from './components/Icon'
 import Sidebar from './components/Sidebar'
 import { createSource, fetchSources, deleteSource, fetchRushAlerts, updateSource } from './services/sourcesApi'
 
+// ---------- Audio alarm (Web Audio API; no asset needed) ----------
 function playRushBeep() {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext
@@ -18,22 +19,39 @@ function playRushBeep() {
       oscillator.type = 'square'
       oscillator.frequency.setValueAtTime(frequency, startTime)
       gain.gain.setValueAtTime(0.001, startTime)
-      gain.gain.exponentialRampToValueAtTime(0.16, startTime + 0.03)
-      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.28)
+      gain.gain.exponentialRampToValueAtTime(0.22, startTime + 0.03)
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.32)
 
       oscillator.connect(gain)
       gain.connect(audioContext.destination)
       oscillator.start(startTime)
-      oscillator.stop(startTime + 0.3)
+      oscillator.stop(startTime + 0.34)
       return oscillator
     }
 
+    // Three-tone alarm pattern (~1.1 s total) — slightly louder than before
     const firstTone = playTone(audioContext.currentTime, 880)
-    playTone(audioContext.currentTime + 0.36, 1040)
-    playTone(audioContext.currentTime + 0.72, 880)
-    firstTone.onended = () => window.setTimeout(() => audioContext.close().catch(() => {}), 1200)
+    playTone(audioContext.currentTime + 0.4, 1040)
+    playTone(audioContext.currentTime + 0.8, 880)
+    firstTone.onended = () => window.setTimeout(() => audioContext.close().catch(() => {}), 1400)
   } catch (error) {
     console.debug('Rush alert sound unavailable:', error)
+  }
+}
+
+// ---------- Desktop notification (fires even when tab is in background) ----------
+function fireDesktopNotification(alert) {
+  try {
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission !== 'granted') return
+    const title = `🚨 Rush detected — ${alert.title || alert.camera_id}`
+    const body =
+      `${alert.current} people · ${Number(alert.ratio).toFixed(2)}× average ` +
+      `(z=${Number(alert.z_score).toFixed(2)}) over last ${alert.window_minutes} min`
+    const n = new Notification(title, { body, tag: alert.camera_id, requireInteraction: false })
+    window.setTimeout(() => n.close(), 12000)
+  } catch (error) {
+    console.debug('Desktop notification failed:', error)
   }
 }
 
@@ -41,7 +59,7 @@ function formatAlertDetail(alert) {
   const current = Number(alert.current) || 0
   const ratio = Number(alert.ratio) || 0
   const windowMinutes = Number(alert.window_minutes) || 10
-  return `${current} people, ${ratio.toFixed(2)}x average in last ${windowMinutes} minutes`
+  return `${current} people · ${ratio.toFixed(2)}× average over last ${windowMinutes} min`
 }
 
 export default function App() {
@@ -52,14 +70,35 @@ export default function App() {
   const [sourceLoadError, setSourceLoadError] = React.useState('')
   const [isSavingSource, setIsSavingSource] = React.useState(false)
   const [sourceSaveError, setSourceSaveError] = React.useState('')
+
+  // Active rush state — keyed by camera_id so children can highlight them
+  const [activeRushAlerts, setActiveRushAlerts] = React.useState([])
   const [rushToasts, setRushToasts] = React.useState([])
   const activeRushCamerasRef = React.useRef(new Set())
   const lastRushBeepAtRef = React.useRef(0)
 
+  // Derived: Set<camera_id> of cameras currently in rush (passed to Sidebar)
+  const activeRushCameraIds = React.useMemo(
+    () => new Set(activeRushAlerts.map((a) => a.camera_id)),
+    [activeRushAlerts],
+  )
+
+  React.useEffect(() => { loadSources() }, [])
+
+  // Request browser notification permission once, on first user gesture
   React.useEffect(() => {
-    loadSources()
+    if (typeof Notification === 'undefined') return
+    if (Notification.permission === 'default') {
+      const ask = () => {
+        Notification.requestPermission().catch(() => {})
+        window.removeEventListener('click', ask)
+      }
+      window.addEventListener('click', ask, { once: true })
+      return () => window.removeEventListener('click', ask)
+    }
   }, [])
 
+  // Poll rush alerts every 10 seconds for ALL cameras
   React.useEffect(() => {
     let isActive = true
 
@@ -70,24 +109,36 @@ export default function App() {
 
         const activeAlerts = alerts.filter((alert) => alert.active && alert.status === 'RUSH ALERT')
         const activeCameraIds = new Set(activeAlerts.map((alert) => alert.camera_id))
-        const hasNewRushAlert = activeAlerts.some((alert) => !activeRushCamerasRef.current.has(alert.camera_id))
+
+        // Detect cameras that just entered rush (were NOT in rush last poll)
+        const newRushAlerts = activeAlerts.filter(
+          (alert) => !activeRushCamerasRef.current.has(alert.camera_id),
+        )
 
         activeRushCamerasRef.current = activeCameraIds
+        setActiveRushAlerts(activeAlerts)
 
+        // Audio: beep on any new rush OR every 30 seconds while sustained
         if (activeAlerts.length > 0) {
           const now = Date.now()
-          if (hasNewRushAlert || now - lastRushBeepAtRef.current > 30000) {
+          if (newRushAlerts.length > 0 || now - lastRushBeepAtRef.current > 30000) {
             playRushBeep()
             lastRushBeepAtRef.current = now
           }
         }
 
+        // Desktop notification: fire ONCE per camera as it enters rush
+        newRushAlerts.forEach((alert) => fireDesktopNotification(alert))
+
+        // Toasts: one per active rush camera
         setRushToasts(
           activeAlerts.map((alert) => ({
             id: alert.camera_id,
-            title: `Abnormal activity detected at ${alert.title || alert.camera_id}`,
+            cameraId: alert.camera_id,
+            sourceId: alert.source_id,
+            title: `Abnormal activity at ${alert.title || alert.camera_id}`,
             detail: formatAlertDetail(alert),
-          }))
+          })),
         )
       } catch (error) {
         console.error('Failed to fetch rush alerts:', error)
@@ -107,6 +158,10 @@ export default function App() {
     setRushToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== toastId))
   }
 
+  function jumpToCamera(sourceId) {
+    if (sourceId) setSelectedSource(sourceId)
+  }
+
   async function loadSources() {
     setIsLoadingSources(true)
     setSourceLoadError('')
@@ -118,7 +173,6 @@ export default function App() {
         if (dbSources.some((source) => source.id === currentSelected)) {
           return currentSelected
         }
-
         return dbSources[0]?.id || ''
       })
     } catch (error) {
@@ -166,7 +220,7 @@ export default function App() {
     try {
       const updated = await updateSource(sourceId, sourceData)
       setSources((currentSources) =>
-        currentSources.map((source) => (source.id === sourceId ? updated : source))
+        currentSources.map((source) => (source.id === sourceId ? updated : source)),
       )
     } catch (error) {
       console.error('Failed to update source:', error)
@@ -184,6 +238,7 @@ export default function App() {
         isLoadingSources={isLoadingSources}
         sourceLoadError={sourceLoadError}
         onRetryLoad={loadSources}
+        activeRushCameraIds={activeRushCameraIds}
       />
 
       <Dashboard
@@ -202,14 +257,41 @@ export default function App() {
         />
       )}
 
+      {/* GLOBAL RUSH BANNER — sticky strip across the top */}
+      {activeRushAlerts.length > 0 && (
+        <div className="global-rush-banner" role="status" aria-live="polite">
+          <Icon name="alert" size={20} />
+          <strong>
+            {activeRushAlerts.length === 1
+              ? '1 camera in active rush'
+              : `${activeRushAlerts.length} cameras in active rush`}
+          </strong>
+          <span className="global-rush-banner-list">
+            {activeRushAlerts
+              .map((a) => a.title || a.camera_id)
+              .join(' · ')}
+          </span>
+        </div>
+      )}
+
+      {/* TOAST STACK — one toast per rush camera */}
       {rushToasts.length > 0 && (
         <div className="rush-toast-stack" aria-live="assertive" aria-atomic="false">
           {rushToasts.map((toast) => (
             <div className="rush-toast" role="alert" key={toast.id}>
               <Icon name="alert" size={32} />
-              <div>
+              <div className="rush-toast-body">
                 <strong className="rush-toast-title">{toast.title}</strong>
                 <p className="rush-toast-detail">{toast.detail}</p>
+                {toast.sourceId && toast.sourceId !== selectedSource && (
+                  <button
+                    className="rush-toast-view"
+                    type="button"
+                    onClick={() => jumpToCamera(toast.sourceId)}
+                  >
+                    View this camera →
+                  </button>
+                )}
               </div>
               <button
                 className="rush-toast-close"

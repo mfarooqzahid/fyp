@@ -8,7 +8,10 @@ export default function Sidebar({
   isLoadingSources,
   sourceLoadError,
   onRetryLoad,
+  activeRushCameraIds = new Set(),
 }) {
+  const rushCount = activeRushCameraIds.size
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -24,7 +27,15 @@ export default function Sidebar({
         <span>Add source</span>
       </button>
 
-      <label className="field-label" htmlFor="source-select">Source</label>
+      <div className="source-list-header">
+        <label className="field-label" htmlFor="source-select">Source</label>
+        {rushCount > 0 && (
+          <span className="sidebar-rush-summary" title={`${rushCount} camera(s) in active rush`}>
+            <span className="rush-dot" />
+            {rushCount} in rush
+          </span>
+        )}
+      </div>
 
       <nav className="source-list" aria-label="Camera sources">
         {isLoadingSources && <p className="source-state">Loading sources...</p>}
@@ -40,17 +51,30 @@ export default function Sidebar({
         {!isLoadingSources && !sourceLoadError && sources.length === 0 && (
           <p className="source-state">No sources in the database yet.</p>
         )}
-        {sources.map((source) => (
-          <button
-            key={source.id}
-            type="button"
-            className={source.id === selectedSource ? 'source-item active' : 'source-item'}
-            onClick={() => onSelectSource(source.id)}
-          >
-            <Icon name="camera" />
-            <span>{source.title}</span>
-          </button>
-        ))}
+        {sources.map((source) => {
+          const inRush = activeRushCameraIds.has(source.camera_id)
+          const classes = ['source-item']
+          if (source.id === selectedSource) classes.push('active')
+          if (inRush) classes.push('rush')
+          return (
+            <button
+              key={source.id}
+              type="button"
+              className={classes.join(' ')}
+              onClick={() => onSelectSource(source.id)}
+              aria-label={inRush ? `${source.title} (in rush)` : source.title}
+            >
+              <Icon name="camera" />
+              <span className="source-item-title">{source.title}</span>
+              {inRush && (
+                <span className="rush-badge" title="Active rush alert" aria-hidden="true">
+                  <span className="rush-badge-dot" />
+                  RUSH
+                </span>
+              )}
+            </button>
+          )
+        })}
       </nav>
 
       <button className="about-button" type="button">

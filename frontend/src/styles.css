@@ -1187,3 +1187,213 @@ textarea {
 .cancel-source-button:active {
   transform: scale(0.98);
 }
+
+/* ============================================================
+   MULTI-CAMERA RUSH ALERT SYSTEM
+   ============================================================ */
+
+/* Sidebar header row that holds the "Source" label + rush summary */
+.source-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 14px 0 6px 0;
+}
+
+.sidebar-rush-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #d32f2f, #b71c1c);
+  padding: 3px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  animation: rush-pulse 1.6s ease-in-out infinite;
+}
+
+.sidebar-rush-summary .rush-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+}
+
+/* Per-camera sidebar item in rush state */
+.source-item.rush {
+  position: relative;
+  border-left: 3px solid #d32f2f;
+  background: rgba(211, 47, 47, 0.08);
+  animation: rush-pulse-bg 2s ease-in-out infinite;
+}
+
+.source-item.rush.active {
+  background: rgba(211, 47, 47, 0.18);
+}
+
+.source-item .source-item-title {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rush-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #e53935, #c62828);
+  padding: 3px 8px;
+  border-radius: 999px;
+  margin-left: auto;
+  box-shadow: 0 2px 6px rgba(211, 47, 47, 0.45);
+  animation: rush-pulse 1.2s ease-in-out infinite;
+}
+
+.rush-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.9);
+}
+
+/* Global rush banner across the top of the dashboard */
+.global-rush-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: linear-gradient(90deg, #b71c1c, #d32f2f, #b71c1c);
+  color: #ffffff;
+  font-size: 14px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
+  animation: rush-banner-slide 0.4s ease-out, rush-pulse 1.6s ease-in-out 0.4s infinite;
+}
+
+.global-rush-banner strong {
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+.global-rush-banner-list {
+  opacity: 0.92;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Toast stack — moved to top-right with stronger visibility */
+.rush-toast-stack {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 420px;
+  pointer-events: none;
+}
+
+.rush-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 14px 14px 16px;
+  background: #ffffff;
+  border-left: 5px solid #d32f2f;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  animation: rush-toast-in 0.35s ease-out;
+}
+
+.rush-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.rush-toast-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #b71c1c;
+  margin-bottom: 4px;
+}
+
+.rush-toast-detail {
+  font-size: 13px;
+  color: #424242;
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.rush-toast-view {
+  display: inline-block;
+  background: transparent;
+  border: 1px solid #d32f2f;
+  color: #d32f2f;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.rush-toast-view:hover {
+  background: #d32f2f;
+  color: #ffffff;
+}
+
+.rush-toast-close {
+  background: transparent;
+  border: none;
+  color: #757575;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.rush-toast-close:hover {
+  color: #b71c1c;
+  background: rgba(211, 47, 47, 0.1);
+}
+
+/* Animations */
+@keyframes rush-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+
+@keyframes rush-pulse-bg {
+  0%, 100% { background-color: rgba(211, 47, 47, 0.08); }
+  50% { background-color: rgba(211, 47, 47, 0.18); }
+}
+
+@keyframes rush-banner-slide {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes rush-toast-in {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
