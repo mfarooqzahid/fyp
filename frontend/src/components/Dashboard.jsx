@@ -2,7 +2,7 @@ import React from 'react'
 import ReactECharts from 'echarts-for-react'
 import Icon from './Icon'
 import SourceInfoModal from './SourceInfoModal'
-import { fetchDashboardData } from '../services/sourcesApi'
+import { fetchDashboardData, getFrameUrl } from '../services/sourcesApi'
 
 function formatNumber(value) {
   return new Intl.NumberFormat('en').format(Number(value) || 0)
@@ -17,6 +17,13 @@ function congestionClass(status) {
   if (status === 'HIGH') return 'high'
   if (status === 'MEDIUM') return 'medium'
   return 'low'
+}
+
+function formatFrameTime(value) {
+  if (!value) return 'Waiting'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Waiting'
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export default function Dashboard({ sources, selectedSource, onDeleteSource, onUpdateSource }) {
@@ -37,7 +44,12 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
   const [error, setError] = React.useState(null)
   const [failedCameraId, setFailedCameraId] = React.useState('')
   const [refreshTrigger, setRefreshTrigger] = React.useState(0)
+  const [frameVersion, setFrameVersion] = React.useState(Date.now())
+  const [frameError, setFrameError] = React.useState(false)
   const currentCameraId = currentSource?.camera_id || ''
+  const isStreamSource = currentSource?.mode === 'stream' || currentSource?.mode === 'live'
+  const showDetectionPreview = Boolean(isStreamSource && currentCameraId)
+  const frameUrl = showDetectionPreview ? getFrameUrl(currentCameraId, frameVersion) : ''
   const hasCurrentDashboardData = Boolean(dashboardData && loadedCameraId === currentCameraId)
   const hasCurrentError = Boolean(error && failedCameraId === currentCameraId)
   const showDashboardLoading = Boolean(currentCameraId && !hasCurrentDashboardData && !hasCurrentError)
@@ -91,6 +103,22 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
       clearInterval(interval)
     }
   }, [currentCameraId, currentSource?.mode, refreshTrigger])
+
+  React.useEffect(() => {
+    setFrameError(false)
+    setFrameVersion(Date.now())
+
+    if (!showDetectionPreview) {
+      return undefined
+    }
+
+    const interval = setInterval(() => {
+      setFrameError(false)
+      setFrameVersion(Date.now())
+    }, 500)
+
+    return () => clearInterval(interval)
+  }, [showDetectionPreview, currentCameraId])
 
   const liveTrend = Array.isArray(dashboardData?.live_trend) ? dashboardData.live_trend : []
   const trendLabels = liveTrend.map((point) => Array.isArray(point) ? point[0] : '')
@@ -346,6 +374,37 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
           <p>{waitMetric?.reason || 'Requires track lifecycle timestamps before this metric can be calculated.'}</p>
         </article>
       </section>
+
+      {showDetectionPreview && (
+        <section className="detection-preview" aria-label="Live detection preview">
+          <div className="detection-preview-meta">
+            <div className="panel-heading">
+              <h3>Live Detection</h3>
+              <span>{currentSource?.worker_status || (currentSource?.worker_alive ? 'running' : 'starting')}</span>
+            </div>
+            <dl>
+              <div><dt>Source</dt><dd>{currentSource?.title || currentCameraId}</dd></div>
+              <div><dt>Camera</dt><dd>{currentCameraId}</dd></div>
+              <div><dt>Last frame</dt><dd>{formatFrameTime(currentSource?.last_frame_at)}</dd></div>
+            </dl>
+          </div>
+          <div className="detection-preview-frame">
+            {!frameError && (
+              <img
+                src={frameUrl}
+                alt={`${currentSource?.title || currentCameraId} live YOLO detection frame`}
+                onLoad={() => setFrameError(false)}
+                onError={() => setFrameError(true)}
+              />
+            )}
+            {frameError && (
+              <div className="detection-preview-empty">
+                Waiting for detection frame
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {isInfoOpen && (
         <SourceInfoModal

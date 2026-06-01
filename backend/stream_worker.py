@@ -16,11 +16,11 @@ except Exception:
 
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 FRAMES_DIR = os.path.join(BACKEND_DIR, "frames")
-STREAM_PROCESS_INTERVAL_SECONDS = float(os.getenv("STREAM_PROCESS_INTERVAL_SECONDS", "5.0"))
-STREAM_MAX_FRAME_WIDTH = int(os.getenv("STREAM_MAX_FRAME_WIDTH", "480"))
-STREAM_JPEG_INTERVAL_SECONDS = float(os.getenv("STREAM_JPEG_INTERVAL_SECONDS", "5.0"))
-STREAM_YOLO_IMGSZ = int(os.getenv("STREAM_YOLO_IMGSZ", "320"))
-STREAM_YOLO_CONF = float(os.getenv("STREAM_YOLO_CONF", "0.4"))
+STREAM_PROCESS_INTERVAL_SECONDS = float(os.getenv("STREAM_PROCESS_INTERVAL_SECONDS", "0.5"))
+STREAM_MAX_FRAME_WIDTH = int(os.getenv("STREAM_MAX_FRAME_WIDTH", "960"))
+STREAM_JPEG_INTERVAL_SECONDS = float(os.getenv("STREAM_JPEG_INTERVAL_SECONDS", "0.5"))
+STREAM_YOLO_IMGSZ = int(os.getenv("STREAM_YOLO_IMGSZ", "640"))
+STREAM_YOLO_CONF = float(os.getenv("STREAM_YOLO_CONF", "0.25"))
 
 
 def is_track_visible(track):

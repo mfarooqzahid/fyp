@@ -334,6 +334,83 @@ textarea {
   font-weight: 800;
 }
 
+.detection-preview {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 420px);
+  align-items: start;
+  gap: 18px;
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid #d8e1ea;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.detection-preview-frame {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  min-height: 0;
+  max-height: 240px;
+  display: grid;
+  place-items: center;
+  background: #111827;
+  border-radius: 8px;
+}
+
+.detection-preview-frame img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.detection-preview-empty {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: #cbd5e1;
+  background: #111827;
+  font-weight: 800;
+}
+
+.detection-preview-meta {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.detection-preview-meta dl {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 0;
+}
+
+.detection-preview-meta dl div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.detection-preview-meta dt {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.detection-preview-meta dd {
+  margin: 0;
+  color: #172033;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
 .filters {
   display: grid;
   grid-template-columns: minmax(320px, 1fr) minmax(220px, 36%);
@@ -942,6 +1019,10 @@ textarea {
   .status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .detection-preview {
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 360px);
+  }
 }
 
 @media (max-width: 760px) {
@@ -980,6 +1061,14 @@ textarea {
   .chart-layout,
   .status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .detection-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .detection-preview-frame {
+    max-height: none;
   }
 
   .topbar h2 {

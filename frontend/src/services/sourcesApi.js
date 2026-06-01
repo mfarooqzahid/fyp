@@ -81,6 +81,14 @@ export async function fetchDashboardData(cameraId, sourceMode = 'generate') {
   return parseResponse(res)
 }
 
+export function getFrameUrl(cameraId, version = Date.now()) {
+  const params = new URLSearchParams({
+    camera: cameraId,
+    t: String(version),
+  })
+  return `${API_BASE}/frame?${params}`
+}
+
 export async function fetchRushAlerts() {
   const res = await fetch(`${API_BASE}/rush-alerts`)
   const data = await parseResponse(res)
