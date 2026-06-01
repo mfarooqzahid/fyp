@@ -20,6 +20,7 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        curl \
         libgl1 \
         libglib2.0-0 \
         nginx \
@@ -31,7 +32,7 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install -r /app/backend/requirements.txt
 
 COPY backend/ /app/backend/
-COPY yolov8n.pt /app/yolov8n.pt
+RUN curl -fsSL -o /app/yolov8n.pt https://github.com/ultralytics/assets/releases/download/v8.3.0/yolov8n.pt
 COPY --from=frontend-build /app/frontend/dist/ /usr/share/nginx/html/
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY docker/entrypoint.sh /entrypoint.sh
