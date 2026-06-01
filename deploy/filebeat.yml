@@ -1,0 +1,15 @@
+filebeat.inputs:
+  - type: filestream
+    id: docker-containers
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    parsers:
+      - container: ~
+
+processors:
+  - add_docker_metadata:
+      host: unix:///var/run/docker.sock
+
+output.elasticsearch:
+  hosts:
+    - http://elasticsearch:9200

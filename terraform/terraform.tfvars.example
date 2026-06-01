@@ -1,0 +1,18 @@
+# Existing EC2 key pair name in ap-southeast-2.
+app_key_name = "your-ec2-keypair-name"
+
+# Use your public IP /32 and/or your Jenkins EC2 public IP /32.
+ssh_allowed_cidrs = [
+  "YOUR_PUBLIC_IP/32",
+  "JENKINS_EC2_PUBLIC_IP/32"
+]
+
+# App can be public for demo, or lock this to your IP /32.
+app_allowed_cidrs = [
+  "0.0.0.0/0"
+]
+
+# Do not leave Grafana/Kibana public.
+monitoring_allowed_cidrs = [
+  "YOUR_PUBLIC_IP/32"
+]
