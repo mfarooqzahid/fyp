@@ -89,6 +89,29 @@ export function getFrameUrl(cameraId, version = Date.now()) {
   return `${API_BASE}/frame?${params}`
 }
 
+// Continuous MJPEG stream URL. Use this as the `src` of an <img> element;
+// browsers render multipart/x-mixed-replace natively (no polling needed).
+// `nonce` lets callers force a fresh connection when the camera changes.
+export function getStreamUrl(cameraId, nonce = Date.now()) {
+  const params = new URLSearchParams({ t: String(nonce) })
+  return `${API_BASE}/stream/${encodeURIComponent(cameraId)}?${params}`
+}
+
+// DVR playback: list available recorded chunks for the camera over the last
+// `hours` window. The dashboard timeline slider uses this to know which times
+// can actually be scrubbed to.
+export async function fetchPlaybackTimeline(cameraId, hours = 6) {
+  const params = new URLSearchParams({ hours: String(hours) })
+  const res = await fetch(`${API_BASE}/playback/${encodeURIComponent(cameraId)}/timeline?${params}`)
+  return parseResponse(res)
+}
+
+// URL for the MP4 chunk that covers `unixSeconds`. Suitable as a <video> src.
+export function getPlaybackClipUrl(cameraId, unixSeconds) {
+  const params = new URLSearchParams({ ts: String(Math.floor(unixSeconds)) })
+  return `${API_BASE}/playback/${encodeURIComponent(cameraId)}/clip?${params}`
+}
+
 export async function fetchRushAlerts() {
   const res = await fetch(`${API_BASE}/rush-alerts`)
   const data = await parseResponse(res)

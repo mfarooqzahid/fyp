@@ -2,7 +2,8 @@ import React from 'react'
 import ReactECharts from 'echarts-for-react'
 import Icon from './Icon'
 import SourceInfoModal from './SourceInfoModal'
-import { fetchDashboardData, getFrameUrl } from '../services/sourcesApi'
+import PlaybackTimeline from './PlaybackTimeline'
+import { fetchDashboardData } from '../services/sourcesApi'
 
 function formatNumber(value) {
   return new Intl.NumberFormat('en').format(Number(value) || 0)
@@ -17,13 +18,6 @@ function congestionClass(status) {
   if (status === 'HIGH') return 'high'
   if (status === 'MEDIUM') return 'medium'
   return 'low'
-}
-
-function formatFrameTime(value) {
-  if (!value) return 'Waiting'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Waiting'
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export default function Dashboard({ sources, selectedSource, onDeleteSource, onUpdateSource }) {
@@ -44,12 +38,9 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
   const [error, setError] = React.useState(null)
   const [failedCameraId, setFailedCameraId] = React.useState('')
   const [refreshTrigger, setRefreshTrigger] = React.useState(0)
-  const [frameVersion, setFrameVersion] = React.useState(Date.now())
-  const [frameError, setFrameError] = React.useState(false)
   const currentCameraId = currentSource?.camera_id || ''
   const isStreamSource = currentSource?.mode === 'stream' || currentSource?.mode === 'live'
   const showDetectionPreview = Boolean(isStreamSource && currentCameraId)
-  const frameUrl = showDetectionPreview ? getFrameUrl(currentCameraId, frameVersion) : ''
   const hasCurrentDashboardData = Boolean(dashboardData && loadedCameraId === currentCameraId)
   const hasCurrentError = Boolean(error && failedCameraId === currentCameraId)
   const showDashboardLoading = Boolean(currentCameraId && !hasCurrentDashboardData && !hasCurrentError)
@@ -104,22 +95,6 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
     }
   }, [currentCameraId, currentSource?.mode, refreshTrigger])
 
-  React.useEffect(() => {
-    setFrameError(false)
-    setFrameVersion(Date.now())
-
-    if (!showDetectionPreview) {
-      return undefined
-    }
-
-    const interval = setInterval(() => {
-      setFrameError(false)
-      setFrameVersion(Date.now())
-    }, 500)
-
-    return () => clearInterval(interval)
-  }, [showDetectionPreview, currentCameraId])
-
   const liveTrend = Array.isArray(dashboardData?.live_trend) ? dashboardData.live_trend : []
   const trendLabels = liveTrend.map((point) => Array.isArray(point) ? point[0] : '')
   const trendValues = liveTrend.map((point) => Array.isArray(point) ? Number(point[1]) || 0 : 0)
@@ -137,32 +112,75 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
   const emptyMetricState = currentCameraId ? 'Loading' : 'No source'
   const displayMetrics = hasCurrentDashboardData
     ? [
-        { label: 'Current Occupancy', value: dashboardData.occupancy ?? 0, delta: dashboardData.occupancy_details?.scope || 'gate' },
-        { label: 'Incoming', value: dashboardData.entries ?? 0, delta: `${flow.incoming_percent ?? 0}% of flow` },
-        { label: 'Outgoing', value: dashboardData.exits ?? 0, delta: `${flow.outgoing_percent ?? 0}% of flow` },
-        { label: 'Rush Status', value: rushAlert.status || 'NORMAL', delta: `${rushAlert.window_minutes || 10} min window` },
+        { label: 'Current Occupancy', value: dashboardData.occupancy ?? 0, delta: dashboardData.occupancy_details?.scope || 'gate', icon: 'users', iconClass: 'icon-occupancy' },
+        { label: 'Incoming', value: dashboardData.entries ?? 0, delta: `${flow.incoming_percent ?? 0}% of flow`, icon: 'arrowDown', iconClass: 'icon-incoming' },
+        { label: 'Outgoing', value: dashboardData.exits ?? 0, delta: `${flow.outgoing_percent ?? 0}% of flow`, icon: 'arrowUp', iconClass: 'icon-outgoing' },
+        { label: 'Rush Status', value: rushAlert.status || 'NORMAL', delta: `${rushAlert.window_minutes || 10} min window`, icon: 'alert', iconClass: 'icon-rush' },
       ]
     : [
-        { label: 'Current Occupancy', value: 0, delta: emptyMetricState },
-        { label: 'Incoming', value: 0, delta: emptyMetricState },
-        { label: 'Outgoing', value: 0, delta: emptyMetricState },
-        { label: 'Rush Status', value: 'N/A', delta: emptyMetricState },
+        { label: 'Current Occupancy', value: 0, delta: emptyMetricState, icon: 'users', iconClass: 'icon-occupancy' },
+        { label: 'Incoming', value: 0, delta: emptyMetricState, icon: 'arrowDown', iconClass: 'icon-incoming' },
+        { label: 'Outgoing', value: 0, delta: emptyMetricState, icon: 'arrowUp', iconClass: 'icon-outgoing' },
+        { label: 'Rush Status', value: 'N/A', delta: emptyMetricState, icon: 'alert', iconClass: 'icon-rush' },
       ]
+  // Render skeleton placeholders while we're waiting for the very first
+  // payload for the selected camera, so the user gets a clear loading cue
+  // instead of stale zeros.
+  const isMetricsLoading = showDashboardLoading
+
+  // Larger, bolder axis labels for readability during projector demos.
+  const axisLabelStyle = { color: '#475467', fontSize: 13, fontWeight: 700 }
+  const tooltipStyle = {
+    textStyle: { fontSize: 13, fontWeight: 600 },
+    backgroundColor: '#ffffff',
+    borderColor: '#d8e1ea',
+    borderWidth: 1,
+    extraCssText: 'box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12); border-radius: 8px;',
+  }
+
+  const axisNameStyle = { color: '#172033', fontSize: 13, fontWeight: 800 }
+  const valueLabelStyle = {
+    show: true,
+    color: '#172033',
+    fontSize: 11,
+    fontWeight: 800,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    padding: [2, 4],
+    borderRadius: 3,
+  }
 
   const occupancyTrendOption = {
-    tooltip: { trigger: 'axis' },
-    grid: { top: 28, right: 24, bottom: 32, left: 42 },
+    tooltip: {
+      trigger: 'axis',
+      ...tooltipStyle,
+      formatter: (params) => {
+        if (!Array.isArray(params) || params.length === 0) return ''
+        const p = params[0]
+        return `<strong>${p.axisValue}</strong><br/>${p.marker} Occupancy: <strong>${p.value} people</strong>`
+      },
+    },
+    grid: { top: 40, right: 28, bottom: 56, left: 62 },
     xAxis: {
       type: 'category',
+      name: 'Time (HH:MM)',
+      nameLocation: 'middle',
+      nameGap: 32,
+      nameTextStyle: axisNameStyle,
       boundaryGap: false,
       data: trendLabels,
       axisLine: { lineStyle: { color: '#d9e1ea' } },
       axisTick: { show: false },
+      axisLabel: axisLabelStyle,
     },
     yAxis: {
       type: 'value',
+      name: 'People in area',
+      nameLocation: 'middle',
+      nameGap: 44,
+      nameTextStyle: axisNameStyle,
       splitLine: { lineStyle: { color: '#edf2f7' } },
-      axisLabel: { color: '#667085' },
+      axisLabel: { ...axisLabelStyle, formatter: '{value}' },
+      minInterval: 1,
     },
     series: [
       {
@@ -170,27 +188,56 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
         type: 'line',
         smooth: true,
         data: trendValues,
-        symbolSize: 7,
+        symbolSize: 8,
+        // Value label on each data point so the user doesn't have to hover or
+        // guess. Only show when the dataset is small enough to stay readable.
+        label: trendValues.length <= 24 ? valueLabelStyle : { show: false },
         lineStyle: { width: 4, color: '#2563eb' },
         itemStyle: { color: '#2563eb' },
-        areaStyle: { color: 'rgba(37, 99, 235, 0.12)' },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(37, 99, 235, 0.28)' },
+              { offset: 1, color: 'rgba(37, 99, 235, 0.02)' },
+            ],
+          },
+        },
       },
     ],
   }
 
   const gateComparisonOption = {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-    grid: { top: 24, right: 24, bottom: 36, left: 54 },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      ...tooltipStyle,
+      formatter: (params) => {
+        if (!Array.isArray(params) || params.length === 0) return ''
+        const p = params[0]
+        return `<strong>${p.name}</strong><br/>${p.marker} Total traffic: <strong>${p.value} people</strong>`
+      },
+    },
+    grid: { top: 40, right: 28, bottom: 60, left: 70 },
     xAxis: {
       type: 'category',
+      name: 'Camera / Gate',
+      nameLocation: 'middle',
+      nameGap: 36,
+      nameTextStyle: axisNameStyle,
       data: gateComparison.map((gate) => getCameraName(gate.camera)),
       axisTick: { show: false },
-      axisLabel: { color: '#667085' },
+      axisLabel: { ...axisLabelStyle, interval: 0, rotate: gateComparison.length > 4 ? 20 : 0 },
     },
     yAxis: {
       type: 'value',
+      name: 'Total traffic (people)',
+      nameLocation: 'middle',
+      nameGap: 48,
+      nameTextStyle: axisNameStyle,
       splitLine: { lineStyle: { color: '#edf2f7' } },
-      axisLabel: { color: '#667085' },
+      axisLabel: axisLabelStyle,
+      minInterval: 1,
     },
     series: [
       {
@@ -199,6 +246,15 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
         data: gateComparison.map((gate) => gate.traffic),
         itemStyle: { color: '#0f766e', borderRadius: [6, 6, 0, 0] },
         barMaxWidth: 48,
+        // Show value on top of each bar so the user reads numbers directly.
+        label: {
+          show: true,
+          position: 'top',
+          color: '#0f766e',
+          fontSize: 12,
+          fontWeight: 800,
+          formatter: '{c}',
+        },
       },
     ],
   }
@@ -237,10 +293,27 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
 
       <section className="metrics" aria-label="Camera metrics">
         {displayMetrics.map((metric) => (
-          <article className="metric-card" key={metric.label}>
-            <p>{metric.label}</p>
-            <strong>{typeof metric.value === 'number' ? formatNumber(metric.value) : metric.value}</strong>
-            <span>{metric.delta}</span>
+          <article
+            className={`metric-card${isMetricsLoading ? ' is-skeleton' : ''}`}
+            key={metric.label}
+          >
+            <div className="metric-header">
+              <p>{metric.label}</p>
+              <span className={`metric-icon ${metric.iconClass || ''}`} aria-hidden="true">
+                <Icon name={metric.icon || 'activity'} size={18} />
+              </span>
+            </div>
+            {isMetricsLoading ? (
+              <>
+                <span className="metric-skel-value skeleton" />
+                <span className="metric-skel-delta skeleton" />
+              </>
+            ) : (
+              <>
+                <strong>{typeof metric.value === 'number' ? formatNumber(metric.value) : metric.value}</strong>
+                <span>{metric.delta}</span>
+              </>
+            )}
           </article>
         ))}
       </section>
@@ -271,7 +344,7 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
 
         <article className={rushAlert.active ? 'rush-panel active' : 'rush-panel'}>
           <div className="panel-heading">
-            <h3>Rush Alert</h3>
+            <h3>Crowd Surge Monitor</h3>
             <span>{rushAlert.status || 'NORMAL'}</span>
           </div>
           <strong>{formatNumber(rushAlert.current)} people</strong>
@@ -376,34 +449,13 @@ export default function Dashboard({ sources, selectedSource, onDeleteSource, onU
       </section>
 
       {showDetectionPreview && (
-        <section className="detection-preview" aria-label="Live detection preview">
-          <div className="detection-preview-meta">
-            <div className="panel-heading">
-              <h3>Live Detection</h3>
-              <span>{currentSource?.worker_status || (currentSource?.worker_alive ? 'running' : 'starting')}</span>
-            </div>
-            <dl>
-              <div><dt>Source</dt><dd>{currentSource?.title || currentCameraId}</dd></div>
-              <div><dt>Camera</dt><dd>{currentCameraId}</dd></div>
-              <div><dt>Last frame</dt><dd>{formatFrameTime(currentSource?.last_frame_at)}</dd></div>
-            </dl>
-          </div>
-          <div className="detection-preview-frame">
-            {!frameError && (
-              <img
-                src={frameUrl}
-                alt={`${currentSource?.title || currentCameraId} live YOLO detection frame`}
-                onLoad={() => setFrameError(false)}
-                onError={() => setFrameError(true)}
-              />
-            )}
-            {frameError && (
-              <div className="detection-preview-empty">
-                Waiting for detection frame
-              </div>
-            )}
-          </div>
-        </section>
+        <PlaybackTimeline
+          cameraId={currentCameraId}
+          sourceTitle={currentSource?.title}
+          workerStatus={currentSource?.worker_status}
+          workerAlive={currentSource?.worker_alive}
+          lastFrameAt={currentSource?.last_frame_at}
+        />
       )}
 
       {isInfoOpen && (

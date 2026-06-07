@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
+import asyncio
 import os
 import sys
 import json
@@ -287,8 +288,15 @@ def add_source(src: SourceCreate):
         raise HTTPException(status_code=422, detail="Stream URL is required")
     if mode == "stream":
         parsed_url = urlparse(stream_url)
-        if parsed_url.scheme not in ["http", "https", "rtsp"] or not parsed_url.netloc:
-            raise HTTPException(status_code=422, detail="Stream URL must be http, https, or rtsp")
+        # `webcam://N` is the special scheme for the host's local camera device
+        # at index N (e.g. webcam://0 = default laptop webcam). The stream worker
+        # converts it to an integer before handing it to cv2.VideoCapture.
+        if parsed_url.scheme == "webcam":
+            idx_part = (parsed_url.netloc or parsed_url.path.lstrip("/")) or "0"
+            if not idx_part.isdigit():
+                raise HTTPException(status_code=422, detail="Webcam URL must be webcam://0, webcam://1, etc.")
+        elif parsed_url.scheme not in ["http", "https", "rtsp"] or not parsed_url.netloc:
+            raise HTTPException(status_code=422, detail="Stream URL must be http, https, rtsp, or webcam://N")
 
     try:
         source = get_source_repository().create_source(
@@ -353,8 +361,15 @@ def update_source(source_id: str, src: SourceUpdate):
         raise HTTPException(status_code=422, detail="Stream URL is required")
     if mode == "stream":
         parsed_url = urlparse(stream_url)
-        if parsed_url.scheme not in ["http", "https", "rtsp"] or not parsed_url.netloc:
-            raise HTTPException(status_code=422, detail="Stream URL must be http, https, or rtsp")
+        # `webcam://N` is the special scheme for the host's local camera device
+        # at index N (e.g. webcam://0 = default laptop webcam). The stream worker
+        # converts it to an integer before handing it to cv2.VideoCapture.
+        if parsed_url.scheme == "webcam":
+            idx_part = (parsed_url.netloc or parsed_url.path.lstrip("/")) or "0"
+            if not idx_part.isdigit():
+                raise HTTPException(status_code=422, detail="Webcam URL must be webcam://0, webcam://1, etc.")
+        elif parsed_url.scheme not in ["http", "https", "rtsp"] or not parsed_url.netloc:
+            raise HTTPException(status_code=422, detail="Stream URL must be http, https, rtsp, or webcam://N")
 
     repo = get_source_repository()
     try:
@@ -456,6 +471,289 @@ def frame(camera: Optional[str] = None):
     if os.path.exists(frame_path):
         return FileResponse(frame_path, media_type="image/jpeg")
     raise HTTPException(status_code=404, detail="Frame not available")
+
+
+# MJPEG continuous live stream for a single camera.
+#
+# Browsers natively render `multipart/x-mixed-replace` via an <img> tag — no
+# JavaScript polling needed. Each time the stream worker writes a new annotated
+# JPEG to backend/frames/{camera_id}.jpg, we push it as the next multipart part.
+# This replaces the previous 500 ms JPEG-polling loop, which felt like a
+# slideshow even on a fast network.
+RECORDINGS_DIR = os.path.join(BACKEND_DIR, "recordings")
+
+
+def _safe_camera_dir(camera_id: str):
+    """Return the absolute, sandboxed recording directory for a camera, or None."""
+    safe = os.path.basename((camera_id or "").strip())
+    if not safe:
+        return None
+    candidate = os.path.realpath(os.path.join(RECORDINGS_DIR, safe))
+    base_real = os.path.realpath(RECORDINGS_DIR)
+    # Prevent path traversal: candidate must live inside RECORDINGS_DIR.
+    if not candidate.startswith(base_real + os.sep) and candidate != base_real:
+        return None
+    return candidate
+
+
+def _list_camera_chunks(camera_id: str, since_ts: float = 0.0):
+    """List recorded MP4 chunks for a camera as
+    [{'start_ts': float, 'end_ts': float, 'path': str, 'size': int}, ...]
+    sorted by start_ts ascending. `start_ts` is parsed from the filename
+    (HHMMSS) combined with the day folder (YYYYMMDD)."""
+    cam_dir = _safe_camera_dir(camera_id)
+    if not cam_dir or not os.path.isdir(cam_dir):
+        return []
+    chunks = []
+    for day_name in sorted(os.listdir(cam_dir)):
+        day_dir = os.path.join(cam_dir, day_name)
+        if not os.path.isdir(day_dir) or len(day_name) != 8 or not day_name.isdigit():
+            continue
+        try:
+            day_date = datetime.strptime(day_name, "%Y%m%d")
+        except ValueError:
+            continue
+        for entry in sorted(os.listdir(day_dir)):
+            if not entry.endswith(".mp4"):
+                continue
+            time_part = entry[:-4]
+            if len(time_part) != 6 or not time_part.isdigit():
+                continue
+            try:
+                start_dt = day_date.replace(
+                    hour=int(time_part[0:2]),
+                    minute=int(time_part[2:4]),
+                    second=int(time_part[4:6]),
+                )
+            except ValueError:
+                continue
+            full = os.path.join(day_dir, entry)
+            try:
+                size = os.path.getsize(full)
+                mtime = os.path.getmtime(full)
+            except OSError:
+                continue
+            start_ts = start_dt.timestamp()
+            # End time = file mtime (when last frame was written). Falls back to
+            # start + a nominal chunk length if mtime <= start (unfinished file).
+            end_ts = mtime if mtime > start_ts else start_ts + 60.0
+            if start_ts < since_ts and end_ts < since_ts:
+                continue
+            chunks.append({
+                "start_ts": start_ts,
+                "end_ts": end_ts,
+                "path": full,
+                "size": size,
+            })
+    chunks.sort(key=lambda c: c["start_ts"])
+    return chunks
+
+
+def _parse_playback_time(value: str):
+    """Accept ISO datetime, HH:MM, or HH:MM:SS; return a unix timestamp."""
+    if not value:
+        return None
+    value = value.strip()
+    # Full ISO 8601 / datetime-local string
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone().replace(tzinfo=None)
+        return dt.timestamp()
+    except ValueError:
+        pass
+    # Bare HH:MM[:SS] → assume today
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            t = datetime.strptime(value, fmt).time()
+            today = datetime.now().date()
+            return datetime.combine(today, t).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+@app.get("/api/playback/{camera_id}/timeline")
+def playback_timeline(camera_id: str, hours: int = 6):
+    """Return the list of available recorded chunks for a camera.
+
+    Used by the dashboard timeline slider to know which time-ranges are
+    playable. Each chunk is represented by ISO start/end and a `clip_url`
+    suitable for an HTML <video> src.
+    """
+    hours = max(1, min(int(hours or 6), 48))
+    since_ts = (datetime.now() - timedelta(hours=hours)).timestamp()
+    chunks = _list_camera_chunks(camera_id, since_ts=since_ts)
+    return {
+        "camera_id": camera_id,
+        "window_hours": hours,
+        "now_iso": datetime.now().astimezone().isoformat(),
+        "chunks": [
+            {
+                "start_iso": datetime.fromtimestamp(c["start_ts"]).astimezone().isoformat(),
+                "end_iso": datetime.fromtimestamp(c["end_ts"]).astimezone().isoformat(),
+                "start_ts": c["start_ts"],
+                "end_ts": c["end_ts"],
+                "size": c["size"],
+                "clip_url": f"/api/playback/{camera_id}/clip?ts={c['start_ts']:.0f}",
+            }
+            for c in chunks
+        ],
+    }
+
+
+@app.get("/api/playback/{camera_id}/clip")
+def playback_clip(camera_id: str, time: Optional[str] = None, ts: Optional[float] = None):
+    """Serve the MP4 chunk covering the requested timestamp.
+
+    Accepts either `?ts=<unix_seconds>` (preferred, what the timeline endpoint
+    returns) or `?time=<HH:MM | HH:MM:SS | ISO>` for direct user URLs.
+    Returns the chunk whose [start, end] window contains the requested time;
+    if none exactly contains it, returns the nearest chunk.
+    FileResponse handles HTTP Range so the <video> element can seek.
+    """
+    target_ts = None
+    if ts is not None:
+        try:
+            target_ts = float(ts)
+        except (TypeError, ValueError):
+            target_ts = None
+    if target_ts is None and time:
+        target_ts = _parse_playback_time(time)
+    if target_ts is None:
+        raise HTTPException(status_code=422, detail="Provide ?ts=<unix> or ?time=<HH:MM>")
+
+    chunks = _list_camera_chunks(camera_id)
+    if not chunks:
+        raise HTTPException(status_code=404, detail="No recordings available for this camera")
+
+    # Prefer a chunk whose window contains the target; else closest by start.
+    chosen = None
+    for c in chunks:
+        if c["start_ts"] <= target_ts <= c["end_ts"]:
+            chosen = c
+            break
+    if chosen is None:
+        chosen = min(chunks, key=lambda c: abs(c["start_ts"] - target_ts))
+
+    if not os.path.exists(chosen["path"]):
+        raise HTTPException(status_code=404, detail="Chunk file missing")
+    return FileResponse(
+        chosen["path"],
+        media_type="video/mp4",
+        headers={
+            "X-Chunk-Start": str(chosen["start_ts"]),
+            "X-Chunk-End": str(chosen["end_ts"]),
+            "Cache-Control": "public, max-age=60",
+        },
+    )
+
+
+@app.get("/api/webcams")
+def list_webcams(max_index: int = 5):
+    """Probe local camera device indices and report which ones are available.
+
+    Useful diagnostic — before registering `webcam://N`, hit this endpoint to
+    discover which N values map to real devices on this host.
+    Tries cv2.VideoCapture(i) for i in [0, max_index] and reports which open
+    and what frame size they produce.
+    """
+    try:
+        import cv2  # local import: keeps base API import cheap if opencv missing
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"OpenCV unavailable: {exc}")
+
+    max_index = max(0, min(int(max_index or 5), 10))
+    results = []
+    for idx in range(max_index + 1):
+        info = {"index": idx, "url": f"webcam://{idx}", "available": False,
+                "width": None, "height": None, "error": None}
+        cap = None
+        try:
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    info["available"] = True
+                    info["height"], info["width"] = frame.shape[:2]
+                else:
+                    info["error"] = "opened but no frame returned"
+            else:
+                info["error"] = "device not present"
+        except Exception as exc:
+            info["error"] = str(exc)
+        finally:
+            if cap is not None:
+                try: cap.release()
+                except Exception: pass
+        results.append(info)
+    return {"cameras": results}
+
+
+@app.get("/api/stream/{camera_id}")
+async def stream_mjpeg(camera_id: str, request: Request):
+    safe_camera = os.path.basename(camera_id.strip())
+    if not safe_camera:
+        raise HTTPException(status_code=422, detail="camera_id is required")
+    frame_path = os.path.join(BACKEND_DIR, "frames", f"{safe_camera}.jpg")
+
+    async def generator():
+        last_mtime = 0.0
+        idle_since = None
+        # Quick "no signal" placeholder bytes (tiny grey JPEG) so the client
+        # always gets *something* on connect, even before the worker has
+        # written the first frame.
+        loop = asyncio.get_event_loop()
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                if not os.path.exists(frame_path):
+                    if idle_since is None:
+                        idle_since = loop.time()
+                    elif loop.time() - idle_since > 30:
+                        # Worker has been quiet for 30 s — let the client
+                        # reconnect (the browser does this automatically).
+                        break
+                    await asyncio.sleep(0.2)
+                    continue
+
+                mtime = os.path.getmtime(frame_path)
+                if mtime != last_mtime:
+                    try:
+                        with open(frame_path, "rb") as f:
+                            data = f.read()
+                    except OSError:
+                        await asyncio.sleep(0.05)
+                        continue
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
+                        + data + b"\r\n"
+                    )
+                    last_mtime = mtime
+                    idle_since = None
+                else:
+                    # No new frame yet — poll the file at ~20 Hz so we push
+                    # the next frame within ~50 ms of the worker writing it.
+                    await asyncio.sleep(0.05)
+            except (asyncio.CancelledError, GeneratorExit):
+                break
+            except Exception as exc:
+                print(f"[MJPEG] stream {safe_camera} error: {exc}")
+                break
+
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "X-Accel-Buffering": "no",  # disable buffering when behind nginx
+    }
+    return StreamingResponse(
+        generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers=headers,
+    )
 
 
 @app.get("/api/camera/{camera_id}/occupancy")

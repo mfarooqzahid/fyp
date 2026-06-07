@@ -53,10 +53,17 @@ export default function AddSourceModal({ onClose, onConfirm, isSaving, serverErr
       } else {
         try {
           const url = new URL(form.streamUrl)
-          const validProtocol = ['http:', 'https:', 'rtsp:'].includes(url.protocol)
+          // `webcam://N` is the special scheme that maps to the host's local
+          // camera device N (e.g. webcam://0 = default laptop webcam).
+          const validProtocol = ['http:', 'https:', 'rtsp:', 'webcam:'].includes(url.protocol)
 
           if (!validProtocol) {
-            nextErrors.streamUrl = 'Use a valid http, https, or rtsp URL.'
+            nextErrors.streamUrl = 'Use http, https, rtsp, or webcam://N.'
+          } else if (url.protocol === 'webcam:') {
+            const idx = (url.host || url.pathname.replace(/^\/+/, '')) || '0'
+            if (!/^\d+$/.test(idx)) {
+              nextErrors.streamUrl = 'Webcam URL must be webcam://0, webcam://1, etc.'
+            }
           }
         } catch {
           nextErrors.streamUrl = 'Enter a valid stream URL.'
@@ -145,14 +152,30 @@ export default function AddSourceModal({ onClose, onConfirm, isSaving, serverErr
           <input
             id="stream-url"
             className={errors.streamUrl ? 'dialog-input field-error' : 'dialog-input'}
-            type="url"
-            placeholder="stream url"
+            type="text"
+            placeholder="rtsp://... or http://... or webcam://0"
             value={form.streamUrl}
             onChange={(event) => updateField('streamUrl', event.target.value)}
             disabled={form.mode === 'generate'}
             aria-invalid={Boolean(errors.streamUrl)}
             aria-describedby={errors.streamUrl ? 'stream-url-error' : undefined}
           />
+          {form.mode === 'stream' && (
+            <div className="stream-url-quickrow">
+              <button
+                type="button"
+                className="webcam-quick-btn"
+                onClick={() => updateField('streamUrl', 'webcam://0')}
+                title="Use the laptop's built-in camera"
+              >
+                <Icon name="camera" size={14} />
+                <span>Use laptop camera</span>
+              </button>
+              <span className="stream-url-hint">
+                Tip: <code>webcam://0</code> = built-in, <code>webcam://1</code> = external USB
+              </span>
+            </div>
+          )}
         </div>
         {form.mode === 'stream' && errors.streamUrl && (
           <p className="error-message" id="stream-url-error">{errors.streamUrl}</p>
